@@ -1,0 +1,42 @@
+{
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "pg": "^8.16.3"
+  },
+  "name": "dj-cadence-service",
+  "version": "1.0.0",
+  "description": "API backend for dj-cadence ui",
+  "main": "server.js",
+  "devDependencies": {
+    "jest": "^30.3.0",
+    "supertest": "^7.2.2"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "devStart": "node server.js",
+    "db:test": "node scripts/db-test.js",
+    "db:migrate:user-feedback": "node scripts/db-migrate-user-feedback.js",
+    "db:verify:user-feedback": "node scripts/db-verify-user-feedback-table.js",
+    "test": "jest --runInBand"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ParamARi/dj-cadence-service.git"
+  },
+  "keywords": [
+    "music",
+    "beat",
+    "api",
+    "tempo",
+    "run",
+    "jogging",
+    "dance"
+  ],
+  "author": "Param A Ri",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ParamARi/dj-cadence-service/issues"
+  },
+  "homepage": "https://github.com/ParamARi/dj-cadence-service#readme"
+}
