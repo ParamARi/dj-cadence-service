@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "pg": "^8.16.3"
@@ -17,7 +18,9 @@
     "devStart": "node server.js",
     "db:test": "node scripts/db-test.js",
     "db:migrate:user-feedback": "node scripts/db-migrate-user-feedback.js",
+    "db:migrate:bpm-feedback": "node scripts/db-migrate-bpm-feedback.js",
     "db:verify:user-feedback": "node scripts/db-verify-user-feedback-table.js",
+    "db:verify:bpm-feedback": "node scripts/db-verify-bpm-feedback-table.js",
     "test": "jest --runInBand"
   },
   "repository": {

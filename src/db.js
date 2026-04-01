@@ -22,6 +22,11 @@ const pool = new Pool(
         }
 );
 
+// Idle clients that hit network/SSL/server-side disconnects emit 'error'; without a listener Node exits.
+pool.on("error", (err) => {
+    console.error("PostgreSQL pool error (idle client):", err.message);
+});
+
 async function testDbConnection() {
     return pool.query("SELECT NOW() AS now");
 }
