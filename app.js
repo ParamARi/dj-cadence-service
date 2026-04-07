@@ -190,6 +190,112 @@ app.post("/api/feedback/bpm", async (req, res) => {
     }
 });
 
+/** User BPM from tap-to-beat UI (POST body uses camelCase). */
+app.post("/api/bpm/tap", async (req, res) => {
+    const logLabel = "[POST /api/bpm/tap]";
+    const reject = (message) => {
+        console.warn(`${logLabel} rejected: ${message}`);
+        return res.status(400).json({ ok: false, error: message });
+    };
+
+    const body = req.body || {};
+    const calculatedBpmRaw = body.calculatedBpm;
+    const referenceBpmRaw = body.referenceBpm;
+    const tapCountRaw = body.tapCount;
+    const durationMsRaw = body.durationMs;
+    const rawTitle = body.rawTitle;
+    const videoId = body.videoId;
+
+    const hasTitle = typeof rawTitle === "string" && rawTitle.length > 0;
+    const hasVideo = typeof videoId === "string" && videoId.length > 0;
+    if (!hasTitle && !hasVideo) {
+        return reject("rawTitle or videoId is required");
+    }
+
+    const calculatedBpm =
+        typeof calculatedBpmRaw === "string" ? Number(calculatedBpmRaw) : calculatedBpmRaw;
+    if (typeof calculatedBpm !== "number" || !Number.isFinite(calculatedBpm)) {
+        return reject("calculatedBpm must be a finite number");
+    }
+    if (calculatedBpm <= 0 || calculatedBpm > 400) {
+        return reject("calculatedBpm must be between 0 exclusive and 400 inclusive");
+    }
+
+    let referenceBpm = null;
+    if (referenceBpmRaw !== undefined && referenceBpmRaw !== null && referenceBpmRaw !== "") {
+        const ref =
+            typeof referenceBpmRaw === "string" ? Number(referenceBpmRaw) : referenceBpmRaw;
+        if (typeof ref !== "number" || !Number.isFinite(ref) || ref <= 0 || ref > 400) {
+            return reject("referenceBpm must be a finite number between 0 and 400 when provided");
+        }
+        referenceBpm = ref;
+    }
+
+    let tapCount = null;
+    if (tapCountRaw !== undefined && tapCountRaw !== null) {
+        const n = typeof tapCountRaw === "string" ? Number.parseInt(tapCountRaw, 10) : tapCountRaw;
+        if (!Number.isInteger(n) || n < 0) {
+            return reject("tapCount must be a non-negative integer when provided");
+        }
+        tapCount = n;
+    }
+
+    let durationMs = null;
+    if (durationMsRaw !== undefined && durationMsRaw !== null) {
+        const ms =
+            typeof durationMsRaw === "string" ? Number.parseInt(durationMsRaw, 10) : durationMsRaw;
+        if (!Number.isInteger(ms) || ms < 0) {
+            return reject("durationMs must be a non-negative integer when provided");
+        }
+        durationMs = ms;
+    }
+
+    let clientSentAt = null;
+    if (typeof body.clientSentAt === "string" && body.clientSentAt.length > 0) {
+        const parsed = new Date(body.clientSentAt);
+        if (Number.isNaN(parsed.getTime())) {
+            return reject("clientSentAt must be an ISO timestamp string");
+        }
+        clientSentAt = parsed.toISOString();
+    }
+
+    try {
+        const insertQuery = `
+            INSERT INTO ytm_song.user_tap_bpm
+                (calculated_bpm, reference_bpm, tap_count, duration_ms,
+                 raw_title, video_id, playlist_id, parsed_song, parsed_artist, artist_name, client_sent_at)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            RETURNING id, created_at
+        `;
+        const values = [
+            calculatedBpm,
+            referenceBpm,
+            tapCount,
+            durationMs,
+            hasTitle ? rawTitle : null,
+            hasVideo ? videoId : null,
+            body.playlistId ?? null,
+            body.parsedSong ?? null,
+            body.parsedArtist ?? null,
+            body.artistName ?? null,
+            clientSentAt,
+        ];
+
+        const result = await pool.query(insertQuery, values);
+        const row = result.rows[0];
+        console.log(`${logLabel} success id=${row.id} calculatedBpm=${calculatedBpm}`);
+        return res.status(201).json({
+            ok: true,
+            id: row.id,
+            createdAt: row.created_at,
+        });
+    } catch (error) {
+        console.error(`${logLabel} failed: ${error.message}`);
+        return res.status(500).json({ ok: false, error: "Failed to save tap BPM measurement" });
+    }
+});
+
 app.get("/api/v1/health/db", async (req, res) => {
     try {
         const result = await testDbConnection();

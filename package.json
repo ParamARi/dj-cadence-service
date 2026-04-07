@@ -19,8 +19,10 @@
     "db:test": "node scripts/db-test.js",
     "db:migrate:user-feedback": "node scripts/db-migrate-user-feedback.js",
     "db:migrate:bpm-feedback": "node scripts/db-migrate-bpm-feedback.js",
+    "db:migrate:user-tap-bpm": "node scripts/db-migrate-user-tap-bpm.js",
     "db:verify:user-feedback": "node scripts/db-verify-user-feedback-table.js",
     "db:verify:bpm-feedback": "node scripts/db-verify-bpm-feedback-table.js",
+    "db:verify:user-tap-bpm": "node scripts/db-verify-user-tap-bpm-table.js",
     "test": "jest --runInBand"
   },
   "repository": {
