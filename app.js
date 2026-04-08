@@ -17,6 +17,23 @@ const FEEDBACK_TYPES = new Set([
 
 const BPM_VOTES = new Set(["up", "down", null]);
 
+function mapUserTapBpmRow(row) {
+    return {
+        id: row.id,
+        userId: row.user_id,
+        rawTitle: row.raw_title,
+        videoId: row.video_id,
+        calculatedBpm: row.calculated_bpm != null ? Number(row.calculated_bpm) : null,
+        referenceBpm: row.reference_bpm != null ? Number(row.reference_bpm) : null,
+        parsedSong: row.parsed_song,
+        usrProvidedSong: row.usr_provided_song,
+        parsedArtist: row.parsed_artist,
+        usrProvidedArtist: row.usr_provided_artist,
+        artistName: row.artist_name,
+        createdAt: row.created_at,
+    };
+}
+
 app.put("/api/v1/songTempo", (req, res) => {
     console.log("Song tempo updated");
     res.send("Song tempo updated");
@@ -99,85 +116,87 @@ app.post("/api/feedback/bpm", async (req, res) => {
 
     const body = req.body || {};
 
-    const vote = body.vote ?? null;
-    const source = body.source;
-    const rowIndexRaw = body.rowIndex;
+    console.log(body);
+
     const rawTitle = body.rawTitle;
     const reportedTempo = body.reportedTempo;
-    const usedParsedFallback =
-        body.usedParsedFallback === undefined ? false : body.usedParsedFallback;
+    const userId = body.userId;
+    const videoId = body.videoId;
 
-    if (!BPM_VOTES.has(vote)) {
-        return reject("vote must be 'up', 'down', or null");
-    }
+    console.log(rawTitle, reportedTempo, userId, videoId);
 
-    if (typeof source !== "string" || source.length === 0) {
-        return reject("source is required");
-    }
-
-    const rowIndex =
-        typeof rowIndexRaw === "string" ? Number.parseInt(rowIndexRaw, 10) : rowIndexRaw;
-    if (!Number.isInteger(rowIndex) || rowIndex < 0) {
-        return reject("rowIndex must be a non-negative integer");
-    }
 
     if (typeof rawTitle !== "string" || rawTitle.length === 0) {
         return reject("rawTitle is required");
     }
 
-    if (typeof reportedTempo !== "string" || reportedTempo.length === 0) {
+    if (typeof reportedTempo !== "number" || reportedTempo.length === 0) {
         return reject("reportedTempo is required");
     }
 
-    if (typeof usedParsedFallback !== "boolean") {
-        return reject("usedParsedFallback must be boolean");
+    if (typeof userId !== "string" || userId.length === 0) {
+        return reject("userId is required");
     }
 
-    let clientSentAt = null;
+    if (typeof videoId !== "string" || videoId.length === 0) {
+        return reject("videoId is required");
+    }
+
+    if (!Number.isFinite(reportedTempo) || reportedTempo <= 0 || reportedTempo > 400) {
+        return reject("reportedTempo must be a numeric BPM between 0 exclusive and 400 inclusive");
+    }
+
+    let referenceBpm = null;
+    const referenceBpmRaw = body.referenceBpm;
+    if (referenceBpmRaw !== undefined && referenceBpmRaw !== null && referenceBpmRaw !== "") {
+        const ref =
+            typeof referenceBpmRaw === "string" ? Number.parseFloat(referenceBpmRaw) : referenceBpmRaw;
+        if (typeof ref !== "number" || !Number.isFinite(ref) || ref <= 0 || ref > 400) {
+            return reject("referenceBpm must be a finite number between 0 and 400 when provided");
+        }
+        referenceBpm = ref;
+    }
+
     if (typeof body.clientSentAt === "string" && body.clientSentAt.length > 0) {
         const parsed = new Date(body.clientSentAt);
         if (Number.isNaN(parsed.getTime())) {
             return reject("clientSentAt must be an ISO timestamp string");
         }
-        clientSentAt = parsed.toISOString();
     }
 
     try {
         const insertQuery = `
-            INSERT INTO ytm_song.bpm_feedback
-                (vote, source, row_index, raw_title, reported_tempo, used_parsed_fallback,
-                 video_id, parsed_song, parsed_artist, matched_song, matched_artist,
-                 suggested_song, suggested_artist, playlist_id, artist_name, client_sent_at)
+            INSERT INTO ytm_song.user_tap_bpm
+                (user_id, raw_title, video_id, calculated_bpm, reference_bpm,
+                 parsed_song, usr_provided_song, parsed_artist, usr_provided_artist, artist_name)
             VALUES
-                ($1, $2, $3, $4, $5, $6,
-                 $7, $8, $9, $10, $11,
-                 $12, $13, $14, $15, $16)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (user_id, video_id) DO UPDATE
+            SET calculated_bpm = EXCLUDED.calculated_bpm,
+                raw_title = EXCLUDED.raw_title,
+                usr_provided_song = EXCLUDED.usr_provided_song,
+                usr_provided_artist = EXCLUDED.usr_provided_artist,
+                created_at = NOW()
             RETURNING id, created_at
         `;
 
         const values = [
-            vote,
-            source,
-            rowIndex,
+            userId,
             rawTitle,
+            videoId,
             reportedTempo,
-            usedParsedFallback,
-            body.videoId ?? null,
-            body.parsedSong ?? null,
-            body.parsedArtist ?? null,
-            body.matchedSong ?? null,
-            body.matchedArtist ?? null,
+            referenceBpm,
+            body.matchedSong ?? body.parsedSong ?? null,
             body.suggestedSong ?? null,
+            body.matchedArtist ?? body.parsedArtist ?? null,
             body.suggestedArtist ?? null,
-            body.playlistId ?? null,
             body.artistName ?? null,
-            clientSentAt,
         ];
 
         const result = await pool.query(insertQuery, values);
         const saved = result.rows[0];
         console.log(
-            `${logLabel} success id=${saved.id} rowIndex=${rowIndex} vote=${vote ?? "null"} source=${source}`
+            `${logLabel} success id=${saved.id} videoId=${videoId}`
         );
         return res.status(201).json({
             ok: true,
@@ -190,7 +209,7 @@ app.post("/api/feedback/bpm", async (req, res) => {
     }
 });
 
-/** User BPM from tap-to-beat UI (POST body uses camelCase). */
+/** User BPM from tap-to-beat UI (POST body uses camelCase). Matches ytm_song.user_tap_bpm. */
 app.post("/api/bpm/tap", async (req, res) => {
     const logLabel = "[POST /api/bpm/tap]";
     const reject = (message) => {
@@ -199,17 +218,20 @@ app.post("/api/bpm/tap", async (req, res) => {
     };
 
     const body = req.body || {};
-    const calculatedBpmRaw = body.calculatedBpm;
-    const referenceBpmRaw = body.referenceBpm;
-    const tapCountRaw = body.tapCount;
-    const durationMsRaw = body.durationMs;
+    const userId = body.userId;
     const rawTitle = body.rawTitle;
     const videoId = body.videoId;
+    const calculatedBpmRaw = body.calculatedBpm;
+    const referenceBpmRaw = body.referenceBpm;
 
-    const hasTitle = typeof rawTitle === "string" && rawTitle.length > 0;
-    const hasVideo = typeof videoId === "string" && videoId.length > 0;
-    if (!hasTitle && !hasVideo) {
-        return reject("rawTitle or videoId is required");
+    if (typeof userId !== "string" || userId.length === 0) {
+        return reject("userId is required");
+    }
+    if (typeof rawTitle !== "string" || rawTitle.length === 0) {
+        return reject("rawTitle is required");
+    }
+    if (typeof videoId !== "string" || videoId.length === 0) {
+        return reject("videoId is required");
     }
 
     const calculatedBpm =
@@ -231,55 +253,26 @@ app.post("/api/bpm/tap", async (req, res) => {
         referenceBpm = ref;
     }
 
-    let tapCount = null;
-    if (tapCountRaw !== undefined && tapCountRaw !== null) {
-        const n = typeof tapCountRaw === "string" ? Number.parseInt(tapCountRaw, 10) : tapCountRaw;
-        if (!Number.isInteger(n) || n < 0) {
-            return reject("tapCount must be a non-negative integer when provided");
-        }
-        tapCount = n;
-    }
-
-    let durationMs = null;
-    if (durationMsRaw !== undefined && durationMsRaw !== null) {
-        const ms =
-            typeof durationMsRaw === "string" ? Number.parseInt(durationMsRaw, 10) : durationMsRaw;
-        if (!Number.isInteger(ms) || ms < 0) {
-            return reject("durationMs must be a non-negative integer when provided");
-        }
-        durationMs = ms;
-    }
-
-    let clientSentAt = null;
-    if (typeof body.clientSentAt === "string" && body.clientSentAt.length > 0) {
-        const parsed = new Date(body.clientSentAt);
-        if (Number.isNaN(parsed.getTime())) {
-            return reject("clientSentAt must be an ISO timestamp string");
-        }
-        clientSentAt = parsed.toISOString();
-    }
-
     try {
         const insertQuery = `
             INSERT INTO ytm_song.user_tap_bpm
-                (calculated_bpm, reference_bpm, tap_count, duration_ms,
-                 raw_title, video_id, playlist_id, parsed_song, parsed_artist, artist_name, client_sent_at)
+                (user_id, raw_title, video_id, calculated_bpm, reference_bpm,
+                 parsed_song, usr_provided_song, parsed_artist, usr_provided_artist, artist_name)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id, created_at
         `;
         const values = [
+            userId,
+            rawTitle,
+            videoId,
             calculatedBpm,
             referenceBpm,
-            tapCount,
-            durationMs,
-            hasTitle ? rawTitle : null,
-            hasVideo ? videoId : null,
-            body.playlistId ?? null,
             body.parsedSong ?? null,
+            body.usrProvidedSong ?? null,
             body.parsedArtist ?? null,
+            body.usrProvidedArtist ?? null,
             body.artistName ?? null,
-            clientSentAt,
         ];
 
         const result = await pool.query(insertQuery, values);
@@ -293,6 +286,47 @@ app.post("/api/bpm/tap", async (req, res) => {
     } catch (error) {
         console.error(`${logLabel} failed: ${error.message}`);
         return res.status(500).json({ ok: false, error: "Failed to save tap BPM measurement" });
+    }
+});
+
+/** Latest tap BPM row for a YouTube (or other) video id. */
+app.get("/api/bpm/tap/latest", async (req, res) => {
+    const logLabel = "[GET /api/bpm/tap/latest]";
+    const videoId = req.query.videoId;
+
+    if (typeof videoId !== "string" || videoId.length === 0) {
+        console.warn(`${logLabel} rejected: videoId query param is required`);
+        return res.status(400).json({ ok: false, error: "videoId query parameter is required" });
+    }
+
+    try {
+        const result = await pool.query(
+            `
+            SELECT id, user_id, raw_title, video_id, calculated_bpm, reference_bpm,
+                   parsed_song, usr_provided_song, parsed_artist, usr_provided_artist, artist_name,
+                   created_at
+            FROM ytm_song.user_tap_bpm
+            WHERE video_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            `,
+            [videoId]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({
+                ok: false,
+                error: "No tap BPM record found for this video",
+            });
+        }
+
+        return res.status(200).json({
+            ok: true,
+            record: mapUserTapBpmRow(result.rows[0]),
+        });
+    } catch (error) {
+        console.error(`${logLabel} failed: ${error.message}`);
+        return res.status(500).json({ ok: false, error: "Failed to load tap BPM record" });
     }
 });
 
