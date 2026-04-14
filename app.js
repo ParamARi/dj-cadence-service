@@ -15,8 +15,6 @@ const FEEDBACK_TYPES = new Set([
     "unknown",
 ]);
 
-const BPM_VOTES = new Set(["up", "down", null]);
-
 function mapUserTapBpmRow(row) {
     return {
         id: row.id,
@@ -107,6 +105,7 @@ app.put("/api/v1/user-feedback", async (req, res) => {
     }
 });
 
+/** Persists to ytm_song.user_tap_bpm (same row shape as POST /api/bpm/tap). Body: camelCase. */
 app.post("/api/feedback/bpm", async (req, res) => {
     const logLabel = "[POST /api/feedback/bpm]";
     const reject = (message) => {
@@ -115,39 +114,32 @@ app.post("/api/feedback/bpm", async (req, res) => {
     };
 
     const body = req.body || {};
-
-    console.log(body);
-
-    const rawTitle = body.rawTitle;
-    const reportedTempo = body.reportedTempo;
     const userId = body.userId;
+    const rawTitle = body.rawTitle;
     const videoId = body.videoId;
-
-    console.log(rawTitle, reportedTempo, userId, videoId);
-
-
-    if (typeof rawTitle !== "string" || rawTitle.length === 0) {
-        return reject("rawTitle is required");
-    }
-
-    if (typeof reportedTempo !== "number" || reportedTempo.length === 0) {
-        return reject("reportedTempo is required");
-    }
+    const calculatedBpmRaw = body.calculatedBpm ?? body.reportedTempo;
+    const referenceBpmRaw = body.referenceBpm;
 
     if (typeof userId !== "string" || userId.length === 0) {
         return reject("userId is required");
     }
-
+    if (typeof rawTitle !== "string" || rawTitle.length === 0) {
+        return reject("rawTitle is required");
+    }
     if (typeof videoId !== "string" || videoId.length === 0) {
         return reject("videoId is required");
     }
 
-    if (!Number.isFinite(reportedTempo) || reportedTempo <= 0 || reportedTempo > 400) {
-        return reject("reportedTempo must be a numeric BPM between 0 exclusive and 400 inclusive");
+    const calculatedBpm =
+        typeof calculatedBpmRaw === "string" ? Number(calculatedBpmRaw) : calculatedBpmRaw;
+    if (typeof calculatedBpm !== "number" || !Number.isFinite(calculatedBpm)) {
+        return reject("calculatedBpm (or reportedTempo) must be a finite number");
+    }
+    if (calculatedBpm <= 0 || calculatedBpm > 400) {
+        return reject("calculatedBpm must be between 0 exclusive and 400 inclusive");
     }
 
     let referenceBpm = null;
-    const referenceBpmRaw = body.referenceBpm;
     if (referenceBpmRaw !== undefined && referenceBpmRaw !== null && referenceBpmRaw !== "") {
         const ref =
             typeof referenceBpmRaw === "string" ? Number.parseFloat(referenceBpmRaw) : referenceBpmRaw;
@@ -155,13 +147,6 @@ app.post("/api/feedback/bpm", async (req, res) => {
             return reject("referenceBpm must be a finite number between 0 and 400 when provided");
         }
         referenceBpm = ref;
-    }
-
-    if (typeof body.clientSentAt === "string" && body.clientSentAt.length > 0) {
-        const parsed = new Date(body.clientSentAt);
-        if (Number.isNaN(parsed.getTime())) {
-            return reject("clientSentAt must be an ISO timestamp string");
-        }
     }
 
     try {
@@ -174,8 +159,12 @@ app.post("/api/feedback/bpm", async (req, res) => {
             ON CONFLICT (user_id, video_id) DO UPDATE
             SET calculated_bpm = EXCLUDED.calculated_bpm,
                 raw_title = EXCLUDED.raw_title,
+                reference_bpm = EXCLUDED.reference_bpm,
+                parsed_song = EXCLUDED.parsed_song,
                 usr_provided_song = EXCLUDED.usr_provided_song,
+                parsed_artist = EXCLUDED.parsed_artist,
                 usr_provided_artist = EXCLUDED.usr_provided_artist,
+                artist_name = EXCLUDED.artist_name,
                 created_at = NOW()
             RETURNING id, created_at
         `;
@@ -184,7 +173,7 @@ app.post("/api/feedback/bpm", async (req, res) => {
             userId,
             rawTitle,
             videoId,
-            reportedTempo,
+            calculatedBpm,
             referenceBpm,
             body.matchedSong ?? body.parsedSong ?? null,
             body.suggestedSong ?? null,
@@ -195,9 +184,7 @@ app.post("/api/feedback/bpm", async (req, res) => {
 
         const result = await pool.query(insertQuery, values);
         const saved = result.rows[0];
-        console.log(
-            `${logLabel} success id=${saved.id} videoId=${videoId}`
-        );
+        console.log(`${logLabel} success id=${saved.id} videoId=${videoId}`);
         return res.status(201).json({
             ok: true,
             id: saved.id,

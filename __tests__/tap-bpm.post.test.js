@@ -32,6 +32,7 @@ describe("POST /api/bpm/tap", () => {
         const response = await request(app)
             .post("/api/bpm/tap")
             .send({
+                userId: "user-1",
                 calculatedBpm: 127.25,
                 referenceBpm: 128,
                 tapCount: 16,
@@ -54,11 +55,15 @@ describe("POST /api/bpm/tap", () => {
 
         const [sql, params] = pool.query.mock.calls[0];
         expect(sql).toContain("ytm_song.user_tap_bpm");
-        expect(params[0]).toBe(127.25);
-        expect(params[1]).toBe(128);
-        expect(params[2]).toBe(16);
-        expect(params[3]).toBe(8000);
-        expect(params[4]).toBe("Song (remix)");
-        expect(params[5]).toBe("xyz");
+        expect(params[0]).toBe("user-1");
+        expect(params[1]).toBe("Song (remix)");
+        expect(params[2]).toBe("xyz");
+        expect(params[3]).toBe(127.25);
+        expect(params[4]).toBe(128);
+        expect(params[5]).toBe("Song");
+        expect(params[6]).toBe(null);
+        expect(params[7]).toBe("Artist");
+        expect(params[8]).toBe(null);
+        expect(params[9]).toBe("Artist");
     });
 });
