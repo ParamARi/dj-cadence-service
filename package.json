@@ -11,6 +11,7 @@
   "main": "server.js",
   "devDependencies": {
     "jest": "^30.3.0",
+    "nodemon": "^3.1.14",
     "supertest": "^7.2.2"
   },
   "scripts": {

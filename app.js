@@ -260,7 +260,7 @@ app.post("/api/bpm/tap", async (req, res) => {
                  parsed_song, usr_provided_song, parsed_artist, usr_provided_artist, artist_name)
             VALUES
                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            RETURNING id, created_at
+            RETURNING id, created_at, raw_title
         `;
         const values = [
             userId,
